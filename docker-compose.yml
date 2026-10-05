@@ -1,0 +1,36 @@
+# Local development stack: PostgreSQL only (run the app with `pnpm dev`).
+# For a full production-like stack see the `app` service below (uncomment and set env).
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tg_files
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # app:
+  #   build:
+  #     context: .
+  #     args:
+  #       NEXT_PUBLIC_APP_URL: https://files.example.com
+  #       NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: my_files_bot
+  #   env_file: .env.production
+  #   environment:
+  #     DATABASE_URL: postgresql://postgres:postgres@db:5432/tg_files
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+
+volumes:
+  pgdata:

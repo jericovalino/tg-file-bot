@@ -1,26 +1,138 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-heading: var(--font-sans);
+  --color-link: var(--link);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/*
+ * Theme tokens map onto Telegram Mini App theme variables (set on <html> by telegram-web-app.js), so the UI follows
+ * the user's Telegram theme automatically. Fallbacks approximate Telegram's default light/dark palettes.
+ */
+:root {
+  --background: var(--tg-theme-secondary-bg-color, #efeff4);
+  --foreground: var(--tg-theme-text-color, #000000);
+  --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff));
+  --card-foreground: var(--foreground);
+  --popover: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff));
+  --popover-foreground: var(--foreground);
+  --primary: var(--tg-theme-button-color, #2481cc);
+  --primary-foreground: var(--tg-theme-button-text-color, #ffffff);
+  --secondary: var(--tg-theme-secondary-bg-color, #efeff4);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--tg-theme-secondary-bg-color, #efeff4);
+  --muted-foreground: var(--tg-theme-hint-color, #8e8e93);
+  --accent: color-mix(in srgb, var(--tg-theme-button-color, #2481cc) 12%, transparent);
+  --accent-foreground: var(--foreground);
+  --destructive: var(--tg-theme-destructive-text-color, #ff3b30);
+  --border: color-mix(in srgb, var(--tg-theme-section-separator-color, #c8c7cc) 70%, transparent);
+  --input: var(--tg-theme-section-separator-color, #c8c7cc);
+  --ring: var(--tg-theme-link-color, #2481cc);
+  --link: var(--tg-theme-link-color, #2481cc);
+  --chart-1: var(--primary);
+  --chart-2: var(--muted-foreground);
+  --chart-3: var(--foreground);
+  --chart-4: var(--destructive);
+  --chart-5: var(--link);
+  --radius: 0.75rem;
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+.dark {
+  --background: var(--tg-theme-secondary-bg-color, #181818);
+  --foreground: var(--tg-theme-text-color, #ffffff);
+  --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #212121));
+  --popover: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #212121));
+  --primary: var(--tg-theme-button-color, #8774e1);
+  --primary-foreground: var(--tg-theme-button-text-color, #ffffff);
+  --secondary: var(--tg-theme-secondary-bg-color, #181818);
+  --muted: var(--tg-theme-secondary-bg-color, #181818);
+  --muted-foreground: var(--tg-theme-hint-color, #aaaaaa);
+  --accent: color-mix(in srgb, var(--tg-theme-button-color, #8774e1) 18%, transparent);
+  --destructive: var(--tg-theme-destructive-text-color, #ff595a);
+  --border: color-mix(in srgb, var(--tg-theme-section-separator-color, #3d3d3f) 80%, transparent);
+  --input: var(--tg-theme-section-separator-color, #3d3d3f);
+  --ring: var(--tg-theme-link-color, #8774e1);
+  --link: var(--tg-theme-link-color, #8774e1);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+html,
+body {
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: var(--tg-viewport-stable-height, 100dvh);
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  padding: 0.05em 0.35em;
+  border-radius: 0.3em;
 }
