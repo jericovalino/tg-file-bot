@@ -1,10 +1,18 @@
 "use client";
 
-import { ChevronLeft, Search, X } from "lucide-react";
+import { CheckCheck, ChevronLeft, ListChecks, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { BreadcrumbDto } from "@/lib/types";
 import { Breadcrumbs } from "./Breadcrumbs";
+
+export interface SelectionHeaderProps {
+  count: number;
+  /** Number of items currently listed (what "Select all" would select). */
+  total: number;
+  onToggleAll: () => void;
+  onCancel: () => void;
+}
 
 interface Props {
   title: string;
@@ -18,13 +26,20 @@ interface Props {
   onSearchChange: (q: string) => void;
   onOpenSearch: () => void;
   onCloseSearch: () => void;
+  /** When set, the header shows the selection controls instead of the title or search box. */
+  selection?: SelectionHeaderProps | null;
+  /** Whether the "Select" button is offered (there is something to select). */
+  canSelect: boolean;
+  onStartSelect: () => void;
 }
 
 export function Header(p: Props) {
   return (
     <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="flex h-12 items-center gap-1 px-2">
-        {p.searchMode ? (
+        {p.selection ? (
+          <SelectionControls {...p.selection} />
+        ) : p.searchMode ? (
           <>
             <Button variant="ghost" size="icon" aria-label="Close search" onClick={p.onCloseSearch}>
               <ChevronLeft />
@@ -51,6 +66,11 @@ export function Header(p: Props) {
                 </button>
               )}
             </div>
+            {p.canSelect && (
+              <Button variant="ghost" size="icon" aria-label="Select items" onClick={p.onStartSelect}>
+                <ListChecks />
+              </Button>
+            )}
           </>
         ) : (
           <>
@@ -65,6 +85,13 @@ export function Header(p: Props) {
               <h1 className="truncate text-[15px] font-semibold leading-tight">{p.title}</h1>
               {p.subtitle && <p className="truncate text-xs text-muted-foreground">{p.subtitle}</p>}
             </div>
+            {p.canSelect ? (
+              <Button variant="ghost" size="icon" aria-label="Select items" onClick={p.onStartSelect}>
+                <ListChecks />
+              </Button>
+            ) : (
+              <div className="size-8" />
+            )}
             <Button variant="ghost" size="icon" aria-label="Search" onClick={p.onOpenSearch}>
               <Search />
             </Button>
@@ -73,5 +100,25 @@ export function Header(p: Props) {
       </div>
       {!p.searchMode && p.breadcrumbs.length > 1 && <Breadcrumbs items={p.breadcrumbs} onNavigate={p.onNavigate} />}
     </header>
+  );
+}
+
+function SelectionControls({ count, total, onToggleAll, onCancel }: SelectionHeaderProps) {
+  const allSelected = total > 0 && count >= total;
+  return (
+    <>
+      <Button variant="ghost" size="icon" aria-label="Cancel selection" onClick={onCancel}>
+        <X />
+      </Button>
+      <div className="min-w-0 flex-1">
+        <h1 className="truncate text-[15px] font-semibold leading-tight" aria-live="polite">
+          {count === 0 ? "Select items" : `${count} selected`}
+        </h1>
+      </div>
+      <Button variant="ghost" size="sm" className="text-primary" onClick={onToggleAll} disabled={total === 0}>
+        <CheckCheck />
+        {allSelected ? "Deselect all" : "Select all"}
+      </Button>
+    </>
   );
 }

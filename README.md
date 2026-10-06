@@ -120,13 +120,14 @@ app/
 │   ├── auth/session, auth/select-chat      initData → session; group picker
 │   ├── folders/[folderId], folders/tree    listing, rename, delete, move, tree
 │   ├── files/upload, files/[fileId]/…      upload, metadata, rename, delete, move, download-url, download, thumbnail, send
+│   ├── bulk/delete, bulk/move, bulk/send   multi-select actions on files + folders
 │   ├── search                              scoped search
 │   ├── uploads/telegram                    "Upload via Telegram" sessions
 │   ├── telegram/webhook                    bot updates
 │   └── health
 ├── layout.tsx  page.tsx  globals.css       Mini App shell, Telegram theme tokens
 components/
-├── FileManager/                            FileManager, Header, Breadcrumbs, SearchView, PreviewSheet, ChatPicker, hooks, session-context
+├── FileManager/                            FileManager, Header, Breadcrumbs, SearchView, PreviewSheet, SelectionBar, ChatPicker, hooks, selection, session-context
 ├── FolderList/  FileList/                  rows
 ├── ContextMenu/ItemMenu.tsx                ⋮ menu
 ├── UploadDialog/  CreateFolderDialog/  dialogs/ (Rename, Move, Delete)
@@ -136,7 +137,7 @@ lib/
 ├── telegram/   bot-api.ts (server wrapper), bot.ts (update handler), init-data.ts, links.ts, media.ts, webapp.ts (client SDK), types.ts
 ├── auth/       session.ts (JWT), context.ts (request → user/chat/role)
 ├── permissions/ policy.ts (roles ↔ permissions), index.ts (can / assertCan)
-├── services/   chats, users, members, folders, folder-tree, files, search, upload-sessions, auth, naming
+├── services/   chats, users, members, folders, folder-tree, files, bulk, search, upload-sessions, auth, naming
 ├── db/         schema.ts, index.ts
 ├── api/        errors.ts (ApiError, route wrapper), stream.ts, client.ts (browser client)
 └── env.ts      validated environment + effective Telegram limits
@@ -187,6 +188,9 @@ All chat-scoped endpoints require `Authorization: Bearer <chat token>`. Errors a
 | GET | `/api/files/:id/download?t=…` | files.download | streams from Telegram; `disposition=inline` for previews |
 | GET | `/api/files/:id/thumbnail?t=…` | files.view | Telegram-generated JPEG thumbnail |
 | POST | `/api/files/:id/send` | files.download | re-sends the file to the user's chat with the bot |
+| POST | `/api/bulk/delete` | per item | `{ fileIds, folderIds }` → deletes everything in one transaction; one forbidden item rejects the request |
+| POST | `/api/bulk/move` | files.move / folders.move | `{ fileIds, folderIds, destinationId }` → one transaction; `INVALID_MOVE` when the destination is a selected folder or inside one |
+| POST | `/api/bulk/send` | files.download | `{ fileIds }` → sends each file to the user's chat; `{ sent, failed[] }` per-file results |
 | GET | `/api/search?q=` | files.view | scoped to the session's chat |
 | POST | `/api/uploads/telegram` | files.upload | `{ folderId }` → `t.me` deep link |
 | POST | `/api/telegram/webhook` | secret header | Telegram updates |

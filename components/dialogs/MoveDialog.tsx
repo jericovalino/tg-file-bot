@@ -5,14 +5,17 @@ import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive } from "lucide
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/common/toast";
-import { useFileMutations, useFolderMutations, useFolderTree, type Item } from "@/components/FileManager/hooks";
+import { useBulkMutations, useFolderTree, type Item } from "@/components/FileManager/hooks";
 import { haptic } from "@/lib/telegram/webapp";
 import type { FolderTreeNodeDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { describeItems, itemName } from "./item-labels";
 
 interface Props {
-  item: Item | null;
+  /** Items to move; an empty list keeps the dialog closed. */
+  items: Item[];
   onClose: () => void;
+  onMoved?: (items: Item[]) => void;
 }
 
 function collectIds(node: FolderTreeNodeDto, into: Set<string>) {
@@ -29,35 +32,46 @@ function findNode(nodes: FolderTreeNodeDto[], id: string): FolderTreeNodeDto | n
   return null;
 }
 
-export function MoveDialog({ item, onClose }: Props) {
+function parentOf(item: Item): string | null {
+  return (item.kind === "folder" ? item.data.parentId : item.data.folderId) ?? null;
+}
+
+export function MoveDialog({ items, onClose, onMoved }: Props) {
+  const open = items.length > 0;
+  const key = items.map((i) => i.data.id).join(",");
   return (
-    <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[85dvh] max-w-sm flex-col">{item && <MoveForm key={item.data.id} item={item} onClose={onClose} />}</DialogContent>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex max-h-[85dvh] max-w-sm flex-col">{open && <MoveForm key={key} items={items} onClose={onClose} onMoved={onMoved} />}</DialogContent>
     </Dialog>
   );
 }
 
-function MoveForm({ item, onClose }: { item: Item; onClose: () => void }) {
+function MoveForm({ items, onClose, onMoved }: { items: Item[]; onClose: () => void; onMoved?: (items: Item[]) => void }) {
   const tree = useFolderTree(true);
-  const folders = useFolderMutations();
-  const files = useFileMutations();
+  const bulk = useBulkMutations();
   const toast = useToast();
-  const currentParent = item.kind === "folder" ? item.data.parentId : item.data.folderId;
-  const [selected, setSelected] = useState<string | null>(currentParent ?? null);
+  // When every item shares a parent, that parent is preselected and "Move here" stays disabled until it changes.
+  const commonParent = useMemo(() => {
+    const parents = new Set(items.map(parentOf));
+    return parents.size === 1 ? [...parents][0] : undefined;
+  }, [items]);
+  const [selected, setSelected] = useState<string | null>(commonParent ?? null);
   // null = "not touched yet": top-level folders are expanded by default once the tree arrives.
   const [expandedState, setExpanded] = useState<Set<string> | null>(null);
   const expanded = useMemo(() => expandedState ?? new Set(tree.data?.map((n) => n.id) ?? []), [expandedState, tree.data]);
-  const pending = folders.move.isPending || files.move.isPending;
+  const pending = bulk.move.isPending;
 
   // A folder can't be moved into itself or its descendants.
   const disabledIds = useMemo(() => {
     const set = new Set<string>();
-    if (item.kind === "folder" && tree.data) {
+    if (!tree.data) return set;
+    for (const item of items) {
+      if (item.kind !== "folder") continue;
       const node = findNode(tree.data, item.data.id);
       if (node) collectIds(node, set);
     }
     return set;
-  }, [item, tree.data]);
+  }, [items, tree.data]);
 
   const toggle = (id: string) =>
     setExpanded(() => {
@@ -69,10 +83,10 @@ function MoveForm({ item, onClose }: { item: Item; onClose: () => void }) {
 
   const confirm = async () => {
     try {
-      if (item.kind === "folder") await folders.move.mutateAsync({ folderId: item.data.id, parentId: selected });
-      else await files.move.mutateAsync({ fileId: item.data.id, folderId: selected });
+      await bulk.move.mutateAsync({ items, destinationId: selected });
       haptic("success");
-      toast({ title: "Moved", variant: "success" });
+      toast({ title: items.length === 1 ? "Moved" : `Moved ${describeItems(items)}`, variant: "success" });
+      onMoved?.(items);
       onClose();
     } catch (err) {
       haptic("error");
@@ -109,14 +123,14 @@ function MoveForm({ item, onClose }: { item: Item; onClose: () => void }) {
     );
   };
 
-  const unchanged = selected === (currentParent ?? null);
-  const name = item.kind === "folder" ? item.data.name : item.data.fileName;
+  const unchanged = commonParent !== undefined && selected === commonParent;
+  const title = items.length === 1 ? `Move “${itemName(items[0])}”` : `Move ${items.length} items`;
 
   return (
     <>
         <DialogHeader>
-          <DialogTitle>Move “{name}”</DialogTitle>
-          <DialogDescription>Select a destination folder</DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{items.length === 1 ? "Select a destination folder" : `Select a destination folder for ${describeItems(items)}`}</DialogDescription>
         </DialogHeader>
         <div className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
           <div className={cn("flex items-center gap-1 rounded-lg pr-2", selected === null && "bg-accent")}>

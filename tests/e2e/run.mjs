@@ -307,6 +307,81 @@ r = await api(member, "POST", `/api/files/${lecture.id}/send`);
 assert.equal(r.status, 200, "send-to-me works regardless of size");
 step("upload via Telegram (1.5 GB) filed correctly; too-big download → 413; send-to-me OK");
 
+// 17b. Bulk operations: permission-checked as a whole, atomic delete/move, per-file send results
+async function uploadAs(token, name, folderId = null) {
+  const fd = new FormData();
+  fd.append("file", new Blob([Buffer.alloc(16, 1)], { type: "text/plain" }), name);
+  if (folderId) fd.append("folderId", folderId);
+  const res = await api(token, "POST", "/api/files/upload", fd);
+  assert.equal(res.status, 201, JSON.stringify(res.json));
+  return res.json.file;
+}
+r = await api(owner, "POST", "/api/folders", { parentId: null, name: "Bulk A" });
+const bulkA = r.json.folder;
+r = await api(owner, "POST", "/api/folders", { parentId: bulkA.id, name: "Sub" });
+const bulkSub = r.json.folder;
+r = await api(owner, "POST", "/api/folders", { parentId: null, name: "Bulk B" });
+const bulkB = r.json.folder;
+const b1 = await uploadAs(member, "b1.txt");
+const b2 = await uploadAs(member, "b2.txt");
+const ownersBulkFile = await uploadAs(owner, "o.txt");
+
+r = await api(owner, "POST", "/api/bulk/delete", { fileIds: [], folderIds: [] });
+assert.equal(r.status, 400, "empty selection rejected");
+r = await api(member, "POST", "/api/bulk/delete", { fileIds: [b1.id, ownersBulkFile.id] });
+assert.equal(r.status, 403, "one forbidden item rejects the whole bulk delete");
+r = await api(member, "GET", `/api/files/${b1.id}`);
+assert.equal(r.status, 200, "nothing was deleted when the request was rejected");
+r = await api(member, "POST", "/api/bulk/move", { fileIds: [b1.id], destinationId: bulkA.id });
+assert.equal(r.status, 403, "members cannot move files");
+r = await api(memberB, "POST", "/api/bulk/delete", { fileIds: [b1.id] });
+assert.equal(r.status, 404, "ids from another group are invisible");
+r = await api(owner, "POST", "/api/bulk/send", { fileIds: [b1.id, "00000000-0000-4000-8000-000000000000"] });
+assert.equal(r.status, 404, "unknown id → 404, nothing sent");
+step("bulk: empty/forbidden/cross-group/unknown selections rejected as a whole");
+
+r = await api(owner, "POST", "/api/bulk/move", { fileIds: [b1.id, b2.id], folderIds: [bulkB.id], destinationId: bulkA.id });
+assert.equal(r.status, 200, JSON.stringify(r.json));
+assert.deepEqual({ movedFiles: r.json.movedFiles, movedFolders: r.json.movedFolders }, { movedFiles: 2, movedFolders: 1 });
+r = await api(owner, "GET", `/api/folders/${bulkA.id}`);
+assert.deepEqual(r.json.folders.map((f) => f.name).sort(), ["Bulk B", "Sub"]);
+assert.deepEqual(r.json.files.map((f) => f.fileName).sort(), ["b1.txt", "b2.txt"]);
+r = await api(owner, "POST", "/api/bulk/move", { fileIds: [b1.id], folderIds: [bulkB.id], destinationId: bulkA.id });
+assert.equal(r.status, 200);
+assert.equal(r.json.movedFiles + r.json.movedFolders, 0, "already in place → no-op");
+r = await api(owner, "POST", "/api/bulk/move", { folderIds: [bulkA.id], destinationId: bulkSub.id });
+assert.equal(r.status, 400);
+assert.equal(r.json.error.code, "INVALID_MOVE", "cannot move a folder into its own subfolder");
+r = await api(owner, "POST", "/api/bulk/move", { folderIds: [bulkA.id, bulkB.id], destinationId: bulkA.id });
+assert.equal(r.json.error.code, "INVALID_MOVE", "cannot move a selection into one of the selected folders");
+r = await api(owner, "POST", "/api/folders", { parentId: bulkSub.id, name: "Bulk B" });
+assert.equal(r.status, 201);
+r = await api(owner, "POST", "/api/bulk/move", { folderIds: [bulkB.id], fileIds: [b1.id], destinationId: bulkSub.id });
+assert.equal(r.status, 409, "name clash in destination → CONFLICT, nothing moved");
+r = await api(owner, "GET", `/api/files/${b1.id}`);
+assert.equal(r.json.file.folderId, bulkA.id, "file stayed put when the folder move failed (atomic)");
+const dup = await uploadAs(owner, "b1.txt", bulkSub.id);
+r = await api(owner, "POST", "/api/bulk/move", { fileIds: [b1.id], destinationId: bulkSub.id });
+assert.equal(r.status, 200);
+r = await api(owner, "GET", `/api/folders/${bulkSub.id}`);
+assert.deepEqual(r.json.files.map((f) => f.fileName).sort(), ["b1 (2).txt", "b1.txt"], "moved file gets a deduped name");
+step("bulk move: atomic, cycle-safe, dedupes names, no-op when already in place");
+
+r = await api(member, "POST", "/api/bulk/send", { fileIds: [b1.id, b2.id] });
+assert.equal(r.status, 200, JSON.stringify(r.json));
+assert.deepEqual({ sent: r.json.sent, failed: r.json.failed }, { sent: 2, failed: [] });
+step("bulk send delivers each file");
+
+r = await api(owner, "POST", "/api/bulk/delete", { fileIds: [ownersBulkFile.id], folderIds: [bulkA.id] });
+assert.equal(r.status, 200, JSON.stringify(r.json));
+assert.equal(r.json.removedFolders, 4, "Bulk A, Sub, Bulk B (moved) and Sub/Bulk B");
+assert.equal(r.json.removedFiles, 4, "o.txt + b1, b2 and the duplicate inside the tree");
+r = await api(owner, "GET", `/api/folders/${bulkB.id}`);
+assert.equal(r.status, 404);
+r = await api(owner, "GET", `/api/files/${dup.id}`);
+assert.equal(r.status, 404);
+step("bulk delete removes files and whole folder trees in one transaction");
+
 // 18. Deep link to a file resolves chat + target
 r = await api(null, "POST", "/api/auth/session", { initData: initDataFor(1, `file_${lecture.id}`) });
 assert.equal(r.json.status, "chat");

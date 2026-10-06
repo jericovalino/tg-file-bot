@@ -1,8 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { useSession } from "./session-context";
-import type { FileDto, FolderDto } from "@/lib/types";
+import type { BulkSelectionDto, FileDto, FolderDto } from "@/lib/types";
 
 export function useChatId(): string {
   const { state } = useSession();
@@ -104,3 +105,32 @@ export function useFileMutations() {
 }
 
 export type Item = { kind: "folder"; data: FolderDto } | { kind: "file"; data: FileDto };
+
+/** Splits a list of items into the id lists the bulk endpoints take. */
+export function toBulkSelection(items: Item[]): BulkSelectionDto {
+  return {
+    fileIds: items.filter((i) => i.kind === "file").map((i) => i.data.id),
+    folderIds: items.filter((i) => i.kind === "folder").map((i) => i.data.id),
+  };
+}
+
+export function useBulkMutations() {
+  const { api } = useSession();
+  const invalidate = useInvalidateAll();
+  const remove = useMutation({ mutationFn: (items: Item[]) => api.bulkDelete(toBulkSelection(items)), onSuccess: invalidate });
+  const move = useMutation({
+    mutationFn: (v: { items: Item[]; destinationId: string | null }) => api.bulkMove(toBulkSelection(v.items), v.destinationId),
+    onSuccess: invalidate,
+  });
+  const send = useMutation({ mutationFn: (fileIds: string[]) => api.bulkSend(fileIds) });
+  return { remove, move, send };
+}
+
+export function useDebounced<T>(value: T, ms: number) {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = window.setTimeout(() => setV(value), ms);
+    return () => window.clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}

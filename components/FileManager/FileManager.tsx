@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderPlus, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -21,7 +21,9 @@ import { ChatPicker } from "./ChatPicker";
 import { Header } from "./Header";
 import { PreviewSheet } from "./PreviewSheet";
 import { SearchView } from "./SearchView";
-import { useFile, useFolder, type Item } from "./hooks";
+import { SelectionBar, type BulkAction } from "./SelectionBar";
+import { useBulkMutations, useDebounced, useFile, useFolder, useSearch, type Item } from "./hooks";
+import { useSelection } from "./selection";
 import { useSession } from "./session-context";
 
 export function FileManager() {
@@ -56,6 +58,8 @@ function SessionError({ error, onRetry }: { error: Error; onRetry: () => void })
   return <ErrorMessage error={Object.assign(new Error(error.message), { name: title })} onRetry={onRetry} />;
 }
 
+const NO_ITEMS: Item[] = [];
+
 function Browser() {
   const { state, api, can } = useSession();
   const session = state.status === "ready" ? state.session : null;
@@ -68,15 +72,21 @@ function Browser() {
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<FileDto | null>(null);
   const [busy, setBusy] = useState<ItemAction | null>(null);
+  const [bulkBusy, setBulkBusy] = useState<BulkAction | null>(null);
 
   // Dialogs ---------------------------------------------------------------------------------------
   const [createOpen, setCreateOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [renaming, setRenaming] = useState<Item | null>(null);
-  const [moving, setMoving] = useState<Item | null>(null);
-  const [deleting, setDeleting] = useState<Item | null>(null);
+  const [moving, setMoving] = useState<Item[]>(NO_ITEMS);
+  const [deleting, setDeleting] = useState<Item[]>(NO_ITEMS);
 
   const listing = useFolder(folderId);
+  const debouncedQuery = useDebounced(query.trim(), 250);
+  const searchResults = useSearch(searchMode ? debouncedQuery : "");
+  const selection = useSelection();
+  const bulk = useBulkMutations();
+
   const deepLinkedFile = useFile(session?.target.fileId ?? null);
   const openedDeepLink = useRef(false);
   useEffect(() => {
@@ -86,19 +96,28 @@ function Browser() {
     }
   }, [deepLinkedFile.data]);
 
+  /** Everything currently on screen, in display order: what "Select all" selects. */
+  const visibleItems = useMemo<Item[]>(() => {
+    const src = searchMode ? searchResults.data : listing.data;
+    if (!src) return NO_ITEMS;
+    return [...src.folders.map((f): Item => ({ kind: "folder", data: f })), ...src.files.map((f): Item => ({ kind: "file", data: f }))];
+  }, [searchMode, searchResults.data, listing.data]);
+
   const navigate = useCallback(
     (next: string | null, push = true) => {
       if (push) historyRef.current.push(folderId);
       setFolderId(next);
       setSearchMode(false);
+      selection.exit();
       haptic("selection");
       window.scrollTo({ top: 0 });
     },
-    [folderId],
+    [folderId, selection],
   );
 
   const goBack = useCallback(() => {
     if (preview) return setPreview(null);
+    if (selection.active) return selection.exit();
     if (searchMode) return setSearchMode(false);
     const prev = historyRef.current.pop();
     if (prev !== undefined) {
@@ -108,9 +127,9 @@ function Browser() {
     // No history (deep link): climb to the parent via breadcrumbs.
     const crumbs = listing.data?.breadcrumbs ?? [];
     setFolderId(crumbs.length > 1 ? crumbs[crumbs.length - 2].id : null);
-  }, [preview, searchMode, listing.data]);
+  }, [preview, selection, searchMode, listing.data]);
 
-  const canGoBack = folderId !== null || searchMode || !!preview;
+  const canGoBack = folderId !== null || searchMode || !!preview || selection.active;
 
   // Telegram BackButton mirrors in-app navigation.
   useEffect(() => {
@@ -122,6 +141,22 @@ function Browser() {
     wa.BackButton.onClick(handler);
     return () => wa.BackButton.offClick(handler);
   }, [canGoBack, goBack]);
+
+  // Selection -------------------------------------------------------------------------------------
+  const startSelecting = useCallback(
+    (item?: Item) => {
+      haptic("medium");
+      selection.start(item);
+    },
+    [selection],
+  );
+  const toggleSelect = useCallback(
+    (item: Item) => {
+      haptic("selection");
+      selection.toggle(item);
+    },
+    [selection],
+  );
 
   // Actions ---------------------------------------------------------------------------------------
   const deepLink = useCallback((item: Item) => `${session?.deepLinkBase ?? ""}${item.kind === "file" ? "file_" : "folder_"}${item.data.id}`, [session]);
@@ -153,6 +188,60 @@ function Browser() {
       }
     },
     [api, session, toast],
+  );
+
+  const sendSelectionToMe = useCallback(async () => {
+    const fileIds = selection.items.filter((i) => i.kind === "file").map((i) => i.data.id);
+    if (fileIds.length === 0) return;
+    try {
+      setBulkBusy("send");
+      const result = await bulk.send.mutateAsync(fileIds);
+      const openChat = { label: "Open chat", onClick: () => openTelegramLink(`https://t.me/${session?.botUsername}`) };
+      if (result.failed.length === 0) {
+        haptic("success");
+        toast({ title: `Sent ${result.sent} ${result.sent === 1 ? "file" : "files"} to your chat with the bot`, variant: "success", action: openChat });
+        selection.exit();
+      } else {
+        haptic("error");
+        // Keep only the failed files selected so the user can retry just those.
+        const failedIds = new Set(result.failed.map((f) => f.fileId));
+        selection.remove(fileIds.filter((id) => !failedIds.has(id)));
+        toast({
+          title: result.sent === 0 ? "Could not send files" : `Sent ${result.sent} of ${fileIds.length} files`,
+          description: `${result.failed.length} failed: ${result.failed[0].message}`,
+          variant: "error",
+          durationMs: 8000,
+          action: result.sent > 0 ? openChat : undefined,
+        });
+      }
+    } catch (err) {
+      haptic("error");
+      const e = err as ClientApiError;
+      const startLink = (e.details as { startLink?: string } | undefined)?.startLink;
+      toast({
+        title: e.code === "USER_NOT_REACHABLE" ? "Start the bot first" : "Could not send files",
+        description: e.message,
+        variant: "error",
+        action: startLink ? { label: "Open bot", onClick: () => openTelegramLink(startLink) } : undefined,
+      });
+    } finally {
+      setBulkBusy(null);
+    }
+  }, [bulk.send, selection, session, toast]);
+
+  const handleBulkAction = useCallback(
+    (action: BulkAction) => {
+      haptic("light");
+      switch (action) {
+        case "move":
+          return setMoving(selection.items);
+        case "delete":
+          return setDeleting(selection.items);
+        case "send":
+          return void sendSelectionToMe();
+      }
+    },
+    [selection.items, sendSelectionToMe],
   );
 
   const handleAction = useCallback(
@@ -201,9 +290,9 @@ function Browser() {
         case "rename":
           return setRenaming(item);
         case "move":
-          return setMoving(item);
+          return setMoving([item]);
         case "delete":
-          return setDeleting(item);
+          return setDeleting([item]);
         case "copy-link": {
           const link = deepLink(item);
           const ok = await copyText(link);
@@ -216,12 +305,32 @@ function Browser() {
     [api, navigate, preview, toast, deepLink, sendToMe],
   );
 
+  /** After a delete: close a preview of a removed file and leave a folder that no longer exists. */
+  const afterDelete = useCallback(
+    (items: Item[]) => {
+      const folderIds = new Set(items.filter((i) => i.kind === "folder").map((i) => i.data.id));
+      const fileIds = new Set(items.filter((i) => i.kind === "file").map((i) => i.data.id));
+      if (preview && fileIds.has(preview.id)) setPreview(null);
+      selection.exit();
+      // The current folder or one of its ancestors is gone (possible from search results): go to the root.
+      const crumbs = listing.data?.breadcrumbs ?? [];
+      if (crumbs.some((c) => c.id !== null && folderIds.has(c.id))) {
+        historyRef.current = [];
+        setFolderId(null);
+        setSearchMode(false);
+      }
+    },
+    [preview, selection, listing.data],
+  );
+
   if (!session) return null;
   const data = listing.data;
   const title = data?.folder?.name ?? session.chat.title;
   const isEmpty = data && data.folders.length === 0 && data.files.length === 0;
   const canUpload = can("files.upload");
   const canCreateFolder = can("folders.create");
+  const selecting = selection.active;
+  const rowSelectionProps = { selecting, onToggleSelect: toggleSelect, onLongPress: startSelecting };
 
   return (
     <div className="flex min-h-dvh flex-col pt-[env(safe-area-inset-top,0px)]">
@@ -236,15 +345,42 @@ function Browser() {
         searchQuery={query}
         onSearchChange={setQuery}
         onOpenSearch={() => {
+          selection.exit();
           setSearchMode(true);
           haptic("light");
         }}
-        onCloseSearch={() => setSearchMode(false)}
+        onCloseSearch={() => {
+          selection.exit();
+          setSearchMode(false);
+        }}
+        selection={
+          selecting
+            ? {
+                count: selection.items.length,
+                total: visibleItems.length,
+                onToggleAll: () => {
+                  haptic("selection");
+                  selection.toggleAll(visibleItems);
+                },
+                onCancel: selection.exit,
+              }
+            : null
+        }
+        canSelect={visibleItems.length > 0}
+        onStartSelect={() => startSelecting()}
       />
 
       <main className="flex flex-1 flex-col">
         {searchMode ? (
-          <SearchView query={query} onOpenFolder={(f) => navigate(f.id)} onOpenFile={setPreview} onAction={handleAction} />
+          <SearchView
+            query={debouncedQuery}
+            results={searchResults}
+            onOpenFolder={(f) => navigate(f.id)}
+            onOpenFile={setPreview}
+            onAction={handleAction}
+            selected={selection.selected}
+            {...rowSelectionProps}
+          />
         ) : listing.isLoading ? (
           <LoadingList />
         ) : listing.error ? (
@@ -252,18 +388,27 @@ function Browser() {
         ) : isEmpty ? (
           <EmptyFolder canUpload={canUpload} onUpload={() => setUploadOpen(true)} />
         ) : (
-          <div className="pb-28">
+          <div className={selecting ? "pb-20" : "pb-28"}>
             {data!.folders.length > 0 && (
               <section className="mt-2 divide-y bg-card">
                 {data!.folders.map((f: FolderDto) => (
-                  <FolderRow key={f.id} folder={f} onOpen={(folder) => navigate(folder.id)} onAction={handleAction} />
+                  <FolderRow key={f.id} folder={f} onOpen={(folder) => navigate(folder.id)} onAction={handleAction} selected={selection.selected.has(f.id)} {...rowSelectionProps} />
                 ))}
               </section>
             )}
             {data!.files.length > 0 && (
               <section className="mt-2 divide-y bg-card">
                 {data!.files.map((f: FileDto) => (
-                  <FileRow key={f.id} file={f} mediaToken={session.mediaToken} highlighted={session.target.fileId === f.id} onOpen={setPreview} onAction={handleAction} />
+                  <FileRow
+                    key={f.id}
+                    file={f}
+                    mediaToken={session.mediaToken}
+                    highlighted={session.target.fileId === f.id}
+                    onOpen={setPreview}
+                    onAction={handleAction}
+                    selected={selection.selected.has(f.id)}
+                    {...rowSelectionProps}
+                  />
                 ))}
               </section>
             )}
@@ -272,7 +417,9 @@ function Browser() {
         )}
       </main>
 
-      {!searchMode && (canUpload || canCreateFolder) && (
+      {selecting && <SelectionBar items={selection.items} busy={bulkBusy} onAction={handleBulkAction} />}
+
+      {!selecting && !searchMode && (canUpload || canCreateFolder) && (
         <div className="fixed right-4 bottom-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] z-40">
           {canUpload && canCreateFolder ? (
             <DropdownMenu>
@@ -301,15 +448,8 @@ function Browser() {
       <CreateFolderDialog open={createOpen} parentId={folderId} parentName={title} onOpenChange={setCreateOpen} />
       <UploadDialog open={uploadOpen} folderId={folderId} folderName={title} onOpenChange={setUploadOpen} />
       <RenameDialog item={renaming} onClose={() => setRenaming(null)} />
-      <MoveDialog item={moving} onClose={() => setMoving(null)} />
-      <DeleteDialog
-        item={deleting}
-        onClose={() => setDeleting(null)}
-        onDeleted={(item) => {
-          if (item.kind === "file" && preview?.id === item.data.id) setPreview(null);
-          if (item.kind === "folder" && folderId === item.data.id) goBack();
-        }}
-      />
+      <MoveDialog items={moving} onClose={() => setMoving(NO_ITEMS)} onMoved={() => selection.exit()} />
+      <DeleteDialog items={deleting} onClose={() => setDeleting(NO_ITEMS)} onDeleted={afterDelete} />
       <PreviewSheet file={preview} onClose={() => setPreview(null)} onAction={handleAction} busy={busy} />
     </div>
   );

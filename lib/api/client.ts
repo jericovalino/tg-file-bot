@@ -1,5 +1,9 @@
 import type {
   ApiErrorBody,
+  BulkDeleteResultDto,
+  BulkMoveResultDto,
+  BulkSelectionDto,
+  BulkSendResultDto,
   ChatSessionDto,
   DownloadUrlDto,
   FileDto,
@@ -108,6 +112,17 @@ export class ApiClient {
   sendToTelegram(fileId: string) {
     return this.request<{ ok: true }>("POST", `/api/files/${fileId}/send`);
   }
+  // bulk
+  bulkDelete(selection: BulkSelectionDto) {
+    return this.request<BulkDeleteResultDto>("POST", "/api/bulk/delete", selection);
+  }
+  bulkMove(selection: BulkSelectionDto, destinationId: string | null) {
+    return this.request<BulkMoveResultDto>("POST", "/api/bulk/move", { ...selection, destinationId });
+  }
+  bulkSend(fileIds: string[]) {
+    return this.request<BulkSendResultDto>("POST", "/api/bulk/send", { fileIds });
+  }
+
   search(q: string) {
     return this.request<SearchResultDto>("GET", `/api/search?q=${encodeURIComponent(q)}`);
   }

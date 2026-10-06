@@ -142,3 +142,38 @@ export interface TelegramUploadSessionDto {
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: unknown };
 }
+
+// ─── Bulk operations ────────────────────────────────────────────────────────────
+
+/** A set of items selected in the Mini App. Both lists may be empty but at least one id is required. */
+export interface BulkSelectionDto {
+  fileIds: string[];
+  folderIds: string[];
+}
+
+export interface BulkDeleteResultDto {
+  ok: true;
+  /** Files removed directly plus files that lived inside removed folders. */
+  removedFiles: number;
+  /** Folders removed directly plus their descendants. */
+  removedFolders: number;
+}
+
+export interface BulkMoveResultDto {
+  ok: true;
+  movedFiles: number;
+  movedFolders: number;
+}
+
+export interface BulkSendFailureDto {
+  fileId: string;
+  fileName: string;
+  code: string;
+  message: string;
+}
+
+export interface BulkSendResultDto {
+  ok: true;
+  sent: number;
+  failed: BulkSendFailureDto[];
+}

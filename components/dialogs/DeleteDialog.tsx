@@ -11,29 +11,35 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/common/toast";
-import { useFileMutations, useFolderMutations, type Item } from "@/components/FileManager/hooks";
+import { useBulkMutations, type Item } from "@/components/FileManager/hooks";
 import { haptic } from "@/lib/telegram/webapp";
+import { describeItems, itemName } from "./item-labels";
 
 interface Props {
-  item: Item | null;
+  /** Items to delete; an empty list keeps the dialog closed. */
+  items: Item[];
   onClose: () => void;
-  onDeleted?: (item: Item) => void;
+  onDeleted?: (items: Item[]) => void;
 }
 
-export function DeleteDialog({ item, onClose, onDeleted }: Props) {
-  const folders = useFolderMutations();
-  const files = useFileMutations();
+export function DeleteDialog({ items, onClose, onDeleted }: Props) {
+  const bulk = useBulkMutations();
   const toast = useToast();
-  const pending = folders.remove.isPending || files.remove.isPending;
+  const pending = bulk.remove.isPending;
+  const open = items.length > 0;
+  const single = items.length === 1 ? items[0] : null;
 
   const confirm = async () => {
-    if (!item) return;
+    if (!open) return;
     try {
-      if (item.kind === "folder") await folders.remove.mutateAsync(item.data.id);
-      else await files.remove.mutateAsync(item.data.id);
+      const result = await bulk.remove.mutateAsync(items);
       haptic("success");
-      toast({ title: item.kind === "folder" ? "Folder deleted" : "File deleted", variant: "success" });
-      onDeleted?.(item);
+      toast({
+        title: single ? (single.kind === "folder" ? "Folder deleted" : "File deleted") : `${items.length} items deleted`,
+        description: single ? undefined : describeItems(items, { removedFiles: result.removedFiles, removedFolders: result.removedFolders }),
+        variant: "success",
+      });
+      onDeleted?.(items);
       onClose();
     } catch (err) {
       haptic("error");
@@ -41,16 +47,18 @@ export function DeleteDialog({ item, onClose, onDeleted }: Props) {
     }
   };
 
-  const name = item ? (item.kind === "folder" ? item.data.name : item.data.fileName) : "";
+  const hasFolder = items.some((i) => i.kind === "folder");
   return (
-    <AlertDialog open={!!item} onOpenChange={(o) => !o && onClose()}>
+    <AlertDialog open={open} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent className="max-w-sm">
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete “{name}”?</AlertDialogTitle>
+          <AlertDialogTitle>{single ? `Delete “${itemName(single)}”?` : `Delete ${items.length} items?`}</AlertDialogTitle>
           <AlertDialogDescription>
-            {item?.kind === "folder"
-              ? "The folder and everything inside it will be removed from the file manager. This cannot be undone."
-              : "The file will be removed from the file manager. This cannot be undone."}
+            {single
+              ? single.kind === "folder"
+                ? "The folder and everything inside it will be removed from the file manager. This cannot be undone."
+                : "The file will be removed from the file manager. This cannot be undone."
+              : `${describeItems(items)} will be removed from the file manager${hasFolder ? ", including everything inside the folders" : ""}. This cannot be undone.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

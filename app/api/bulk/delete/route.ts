@@ -1,0 +1,20 @@
+import { z } from "zod";
+import { readJson, route, uuidSchema } from "@/lib/api/errors";
+import { requireChatContext } from "@/lib/auth/context";
+import { BULK_MAX_ITEMS, bulkDelete } from "@/lib/services/bulk";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const bodySchema = z.object({
+  fileIds: z.array(uuidSchema).max(BULK_MAX_ITEMS).default([]),
+  folderIds: z.array(uuidSchema).max(BULK_MAX_ITEMS).default([]),
+});
+
+/** Deletes a selection of files and folders atomically. Every item is permission-checked before anything is removed. */
+export const POST = route(async (req) => {
+  const ctx = await requireChatContext(req);
+  const body = await readJson(req, bodySchema);
+  const result = await bulkDelete(ctx.chat.id, ctx.principal, body);
+  return Response.json(result);
+});
