@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { LoadingTree } from "@/components/common/states";
 import { useToast } from "@/components/common/toast";
 import { useBulkMutations, useFolderTree, type Item } from "@/components/FileManager/hooks";
 import { haptic } from "@/lib/telegram/webapp";
@@ -140,7 +141,7 @@ function MoveForm({ items, onClose, onMoved }: { items: Item[]; onClose: () => v
               <span>Group Files</span>
             </button>
           </div>
-          {tree.isLoading && <p className="px-3 py-2 text-sm text-muted-foreground">Loading folders…</p>}
+          {tree.isLoading && <LoadingTree />}
           {tree.data?.map((n) => renderNode(n, 1))}
         </div>
         <DialogFooter>

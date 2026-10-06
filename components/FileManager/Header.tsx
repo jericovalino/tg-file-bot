@@ -3,6 +3,7 @@
 import { CheckCheck, ChevronLeft, ListChecks, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BreadcrumbsSkeleton, HeaderTitleSkeleton } from "@/components/common/states";
 import type { BreadcrumbDto } from "@/lib/types";
 import { Breadcrumbs } from "./Breadcrumbs";
 
@@ -30,6 +31,10 @@ interface Props {
   selection?: SelectionHeaderProps | null;
   /** Whether the "Select" button is offered (there is something to select). */
   canSelect: boolean;
+  /** The current folder is still loading: the title block shows a skeleton instead of a fallback name. */
+  loading?: boolean;
+  /** A nested folder is loading, so a breadcrumb strip is expected: reserve its space with a skeleton. */
+  loadingBreadcrumbs?: boolean;
   onStartSelect: () => void;
 }
 
@@ -81,10 +86,14 @@ export function Header(p: Props) {
             ) : (
               <div className="size-8" />
             )}
-            <div className="min-w-0 flex-1 text-center">
-              <h1 className="truncate text-[15px] font-semibold leading-tight">{p.title}</h1>
-              {p.subtitle && <p className="truncate text-xs text-muted-foreground">{p.subtitle}</p>}
-            </div>
+            {p.loading ? (
+              <HeaderTitleSkeleton />
+            ) : (
+              <div className="min-w-0 flex-1 text-center">
+                <h1 className="truncate text-[15px] font-semibold leading-tight">{p.title}</h1>
+                {p.subtitle && <p className="truncate text-xs text-muted-foreground">{p.subtitle}</p>}
+              </div>
+            )}
             {p.canSelect ? (
               <Button variant="ghost" size="icon" aria-label="Select items" onClick={p.onStartSelect}>
                 <ListChecks />
@@ -98,7 +107,7 @@ export function Header(p: Props) {
           </>
         )}
       </div>
-      {!p.searchMode && p.breadcrumbs.length > 1 && <Breadcrumbs items={p.breadcrumbs} onNavigate={p.onNavigate} />}
+      {!p.searchMode && (p.loadingBreadcrumbs ? <BreadcrumbsSkeleton /> : p.breadcrumbs.length > 1 && <Breadcrumbs items={p.breadcrumbs} onNavigate={p.onNavigate} />)}
     </header>
   );
 }

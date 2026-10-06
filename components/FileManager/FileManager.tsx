@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderPlus, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EmptyFolder, ErrorMessage, FullScreenSpinner, LoadingList, CenterMessage } from "@/components/common/states";
+import { EmptyFolder, ErrorMessage, LoadingBrowser, LoadingList, CenterMessage } from "@/components/common/states";
 import { useToast } from "@/components/common/toast";
 import { CreateFolderDialog } from "@/components/CreateFolderDialog/CreateFolderDialog";
 import { UploadDialog } from "@/components/UploadDialog/UploadDialog";
@@ -28,7 +28,7 @@ import { useSession } from "./session-context";
 
 export function FileManager() {
   const { state, reauth } = useSession();
-  if (state.status === "loading") return <FullScreenSpinner label="Connecting to Telegram…" />;
+  if (state.status === "loading") return <LoadingBrowser />;
   if (state.status === "not-telegram") return <NotInTelegram />;
   if (state.status === "error") return <SessionError error={state.error} onRetry={() => void reauth()} />;
   if (state.status === "select-chat") return <ChatPicker data={state.data} />;
@@ -330,6 +330,7 @@ function Browser() {
   const canUpload = can("files.upload");
   const canCreateFolder = can("folders.create");
   const selecting = selection.active;
+  const folderLoading = !searchMode && listing.isLoading;
   const rowSelectionProps = { selecting, onToggleSelect: toggleSelect, onLongPress: startSelecting };
 
   return (
@@ -368,6 +369,8 @@ function Browser() {
         }
         canSelect={visibleItems.length > 0}
         onStartSelect={() => startSelecting()}
+        loading={folderLoading}
+        loadingBreadcrumbs={folderLoading && folderId !== null}
       />
 
       <main className="flex flex-1 flex-col">
